@@ -65,6 +65,95 @@ app.post('/v1/messages', async (c) => {
       return value.replace(/Bearer\s+(\S+)/g, 'Bearer ********')
     }
 
+    function sanitizeOpenAIMessages(sourceMessages: any[]): any[] {
+      return sourceMessages
+        .filter((message) => message != null)
+        .map((message) => {
+        const sanitized = { ...message }
+        if (sanitized.content == null) {
+          sanitized.content = ''
+        } else if (Array.isArray(sanitized.content)) {
+          const parts = sanitized.content
+            .filter((part: any) => part != null)
+            .map((part: any) => {
+              if (part?.type === 'text' && part.text == null) {
+                return { ...part, text: '' }
+              }
+              return part
+            })
+          sanitized.content = parts.length > 0 ? parts : ''
+        } else if (typeof sanitized.content !== 'string') {
+          sanitized.content =
+            typeof sanitized.content === 'object'
+              ? JSON.stringify(sanitized.content)
+              : String(sanitized.content)
+        }
+        if (sanitized.role === 'tool') {
+          if (sanitized.tool_call_id == null || String(sanitized.tool_call_id).trim() === '') {
+            return null
+          }
+          if (typeof sanitized.tool_call_id !== 'string') {
+            sanitized.tool_call_id = String(sanitized.tool_call_id)
+          }
+        }
+        if (Array.isArray(sanitized.tool_calls)) {
+          sanitized.tool_calls = sanitized.tool_calls
+            .filter((toolCall: any) => toolCall != null)
+            .map((toolCall: any) => {
+              const toolCallCopy = { ...toolCall }
+              if (toolCallCopy.id == null || String(toolCallCopy.id).trim() === '') {
+                return null
+              }
+              if (typeof toolCallCopy.id !== 'string') {
+                toolCallCopy.id = String(toolCallCopy.id)
+              }
+              if (!toolCallCopy.function) return null
+              const functionCopy = { ...toolCallCopy.function }
+              if (functionCopy.name == null || String(functionCopy.name).trim() === '') {
+                return null
+              }
+              if (typeof functionCopy.name !== 'string') {
+                functionCopy.name = String(functionCopy.name)
+              }
+              if (typeof functionCopy.arguments !== 'string') {
+                functionCopy.arguments = JSON.stringify(functionCopy.arguments ?? {})
+              }
+              toolCallCopy.function = functionCopy
+              return toolCallCopy
+            })
+            .filter((toolCall: any) => toolCall != null)
+        }
+        return sanitized
+      })
+        .filter((message) => message != null)
+    }
+
+    function sanitizeOpenAITools(sourceTools: any[]): any[] {
+      return sourceTools
+        .filter((tool) => tool && tool.type === 'function')
+        .map((tool) => {
+          const functionDefinition = tool.function ?? {}
+          const name = typeof functionDefinition.name === 'string' ? functionDefinition.name : ''
+          const description =
+            typeof functionDefinition.description === 'string'
+              ? functionDefinition.description.slice(0, 1024)
+              : ''
+          const parameters =
+            functionDefinition.parameters && typeof functionDefinition.parameters === 'object'
+              ? functionDefinition.parameters
+              : { type: 'object', properties: {} }
+          return {
+            type: 'function',
+            function: {
+              name,
+              description,
+              parameters,
+            },
+          }
+        })
+        .filter((tool) => tool.function.name.trim() !== '')
+    }
+
     const claudePayload = await c.req.json()
     
     // Transform Claude format to OpenAI format for upstream API
@@ -127,12 +216,18 @@ app.post('/v1/messages', async (c) => {
               if (block.type === 'text') {
                 textParts.push(block.text)
               } else if (block.type === 'tool_result') {
-                // Tool results should be separate tool messages
-                toolResults.push({
-                  role: 'tool',
-                  content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-                  tool_call_id: block.tool_use_id
-                })
+                if (block.tool_use_id && String(block.tool_use_id).trim() !== '') {
+                  // Tool results should be separate tool messages
+                  toolResults.push({
+                    role: 'tool',
+                    content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+                    tool_call_id: block.tool_use_id
+                  })
+                } else {
+                  textParts.push(
+                    typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
+                  )
+                }
               }
             }
             
@@ -176,7 +271,7 @@ app.post('/v1/messages', async (c) => {
                   type: 'function',
                   function: {
                     name: block.name,
-                    arguments: JSON.stringify(block.input)
+                    arguments: JSON.stringify(block.input ?? {})
                   }
                 })
               }
@@ -184,11 +279,11 @@ app.post('/v1/messages', async (c) => {
             
             // Add assistant message with content and/or tool calls
             const openAIMsg: any = { role: 'assistant' }
-            // OpenAI requires content to be null when only tool_calls are present
+            // Use empty content for tool-only messages to satisfy strict upstreams
             if (textParts.length > 0) {
               openAIMsg.content = textParts.join(' ')
             } else if (toolCalls.length > 0) {
-              openAIMsg.content = null
+              openAIMsg.content = ''
             }
             if (toolCalls.length > 0) {
               openAIMsg.tool_calls = toolCalls
@@ -226,7 +321,7 @@ app.post('/v1/messages', async (c) => {
       // Existing fields kept as before
 
       model: selectedModel,
-      messages,
+      messages: sanitizeOpenAIMessages(messages),
       // o3/o1/gpt-5 models only support temperature=1 (default)
       temperature: isO3Model ? undefined : (claudeRequest.temperature !== undefined ? claudeRequest.temperature : 1),
       stream: claudeRequest.stream === true,
@@ -264,8 +359,10 @@ app.post('/v1/messages', async (c) => {
         type === 'none' || type === 'auto' ? type : undefined
     }
     
-    if (tools.length > 0) openaiPayload.tools = tools
+    if (tools.length > 0) openaiPayload.tools = sanitizeOpenAITools(tools)
     
+    openaiPayload.messages = sanitizeOpenAIMessages(openaiPayload.messages)
+
     debug('OpenAI payload:', JSON.stringify(openaiPayload, null, 2))
 
     const headers: Record<string, string> = {
