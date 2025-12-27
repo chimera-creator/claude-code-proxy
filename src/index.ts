@@ -201,7 +201,7 @@ app.post('/v1/messages', async (c) => {
                   type: 'function',
                   function: {
                     name: block.name,
-                    arguments: JSON.stringify(block.input)
+                    arguments: JSON.stringify(block.input ?? {})
                   }
                 })
               }
