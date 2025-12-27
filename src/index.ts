@@ -152,12 +152,18 @@ app.post('/v1/messages', async (c) => {
               if (block.type === 'text') {
                 textParts.push(block.text)
               } else if (block.type === 'tool_result') {
-                // Tool results should be separate tool messages
-                toolResults.push({
-                  role: 'tool',
-                  content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-                  tool_call_id: block.tool_use_id
-                })
+                if (block.tool_use_id && String(block.tool_use_id).trim() !== '') {
+                  // Tool results should be separate tool messages
+                  toolResults.push({
+                    role: 'tool',
+                    content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+                    tool_call_id: block.tool_use_id
+                  })
+                } else {
+                  textParts.push(
+                    typeof block.content === 'string' ? block.content : JSON.stringify(block.content)
+                  )
+                }
               }
             }
             
