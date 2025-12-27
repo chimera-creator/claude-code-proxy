@@ -66,10 +66,11 @@ app.post('/v1/messages', async (c) => {
     }
 
     function sanitizeOpenAIMessages(sourceMessages: any[]): any[] {
-      return sourceMessages.map((message) => {
+      return sourceMessages.filter((message) => message != null).map((message) => {
         const sanitized = { ...message }
-        if (sanitized.content == null) sanitized.content = ''
-        if (Array.isArray(sanitized.content)) {
+        if (sanitized.content == null) {
+          sanitized.content = ''
+        } else if (Array.isArray(sanitized.content)) {
           const parts = sanitized.content
             .filter((part: any) => part != null)
             .map((part: any) => {
@@ -79,6 +80,11 @@ app.post('/v1/messages', async (c) => {
               return part
             })
           sanitized.content = parts.length > 0 ? parts : ''
+        } else if (typeof sanitized.content !== 'string') {
+          sanitized.content =
+            typeof sanitized.content === 'object'
+              ? JSON.stringify(sanitized.content)
+              : String(sanitized.content)
         }
         return sanitized
       })
