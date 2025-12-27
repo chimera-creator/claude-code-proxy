@@ -66,9 +66,7 @@ app.post('/v1/messages', async (c) => {
     }
 
     function sanitizeOpenAIMessages(sourceMessages: any[]): any[] {
-      return sourceMessages
-        .filter((message) => message != null)
-        .map((message) => {
+      return sourceMessages.filter((message) => message != null).map((message) => {
         const sanitized = { ...message }
         if (sanitized.content == null) {
           sanitized.content = ''
@@ -88,70 +86,8 @@ app.post('/v1/messages', async (c) => {
               ? JSON.stringify(sanitized.content)
               : String(sanitized.content)
         }
-        if (sanitized.role === 'tool') {
-          if (sanitized.tool_call_id == null || String(sanitized.tool_call_id).trim() === '') {
-            return null
-          }
-          if (typeof sanitized.tool_call_id !== 'string') {
-            sanitized.tool_call_id = String(sanitized.tool_call_id)
-          }
-        }
-        if (Array.isArray(sanitized.tool_calls)) {
-          sanitized.tool_calls = sanitized.tool_calls
-            .filter((toolCall: any) => toolCall != null)
-            .map((toolCall: any) => {
-              const toolCallCopy = { ...toolCall }
-              if (toolCallCopy.id == null || String(toolCallCopy.id).trim() === '') {
-                return null
-              }
-              if (typeof toolCallCopy.id !== 'string') {
-                toolCallCopy.id = String(toolCallCopy.id)
-              }
-              if (!toolCallCopy.function) return null
-              const functionCopy = { ...toolCallCopy.function }
-              if (functionCopy.name == null || String(functionCopy.name).trim() === '') {
-                return null
-              }
-              if (typeof functionCopy.name !== 'string') {
-                functionCopy.name = String(functionCopy.name)
-              }
-              if (typeof functionCopy.arguments !== 'string') {
-                functionCopy.arguments = JSON.stringify(functionCopy.arguments ?? {})
-              }
-              toolCallCopy.function = functionCopy
-              return toolCallCopy
-            })
-            .filter((toolCall: any) => toolCall != null)
-        }
         return sanitized
       })
-        .filter((message) => message != null)
-    }
-
-    function sanitizeOpenAITools(sourceTools: any[]): any[] {
-      return sourceTools
-        .filter((tool) => tool && tool.type === 'function')
-        .map((tool) => {
-          const functionDefinition = tool.function ?? {}
-          const name = typeof functionDefinition.name === 'string' ? functionDefinition.name : ''
-          const description =
-            typeof functionDefinition.description === 'string'
-              ? functionDefinition.description.slice(0, 1024)
-              : ''
-          const parameters =
-            functionDefinition.parameters && typeof functionDefinition.parameters === 'object'
-              ? functionDefinition.parameters
-              : { type: 'object', properties: {} }
-          return {
-            type: 'function',
-            function: {
-              name,
-              description,
-              parameters,
-            },
-          }
-        })
-        .filter((tool) => tool.function.name.trim() !== '')
     }
 
     const claudePayload = await c.req.json()
