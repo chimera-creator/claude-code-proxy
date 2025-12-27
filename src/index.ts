@@ -85,42 +85,19 @@ function sanitizeOpenAIMessages(sourceMessages: any[]): any[] {
 }
 
 function sanitizeOpenAITools(sourceTools: any[]): any[] {
-  const stripUnsupportedSchemaFields = (schema: any): any => {
-    if (Array.isArray(schema)) {
-      return schema.map((item) => stripUnsupportedSchemaFields(item))
-    }
-    if (!schema || typeof schema !== 'object') {
-      return schema
-    }
-    const result: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(schema)) {
-      if (key === '$schema' || key === 'additionalProperties') continue
-      if (key === 'required' && Array.isArray(value)) {
-        result.required = value.filter((item) => typeof item === 'string')
-        continue
-      }
-      result[key] = stripUnsupportedSchemaFields(value)
-    }
-    return result
-  }
-
   return sourceTools
     .filter((tool) => tool && tool.type === 'function')
     .map((tool) => {
       const functionDefinition = tool.function ?? {}
-      const nameValue = typeof functionDefinition.name === 'string' ? functionDefinition.name.trim() : ''
-      const name = nameValue.length > 64 ? nameValue.slice(0, 64) : nameValue
+      const name = typeof functionDefinition.name === 'string' ? functionDefinition.name : ''
       const description =
         typeof functionDefinition.description === 'string'
           ? functionDefinition.description.slice(0, 1024)
           : ''
-      let parameters: any = stripUnsupportedSchemaFields(functionDefinition.parameters)
-      if (!parameters || typeof parameters !== 'object') {
-        parameters = { type: 'object', properties: {} }
-      }
-      if (typeof parameters.type !== 'string') {
-        parameters.type = parameters.properties ? 'object' : 'string'
-      }
+      const parameters =
+        functionDefinition.parameters && typeof functionDefinition.parameters === 'object'
+          ? functionDefinition.parameters
+          : { type: 'object', properties: {} }
       return {
         type: 'function',
         function: {
@@ -175,6 +152,31 @@ app.post('/v1/messages', async (c) => {
 
     function maskBearer(value: string): string {
       return value.replace(/Bearer\s+(\S+)/g, 'Bearer ********')
+    }
+
+    function sanitizeOpenAIMessages(sourceMessages: any[]): any[] {
+      return sourceMessages.filter((message) => message != null).map((message) => {
+        const sanitized = { ...message }
+        if (sanitized.content == null) {
+          sanitized.content = ''
+        } else if (Array.isArray(sanitized.content)) {
+          const parts = sanitized.content
+            .filter((part: any) => part != null)
+            .map((part: any) => {
+              if (part?.type === 'text' && part.text == null) {
+                return { ...part, text: '' }
+              }
+              return part
+            })
+          sanitized.content = parts.length > 0 ? parts : ''
+        } else if (typeof sanitized.content !== 'string') {
+          sanitized.content =
+            typeof sanitized.content === 'object'
+              ? JSON.stringify(sanitized.content)
+              : String(sanitized.content)
+        }
+        return sanitized
+      })
     }
 
     const claudePayload = await c.req.json()
@@ -382,12 +384,7 @@ app.post('/v1/messages', async (c) => {
         type === 'none' || type === 'auto' ? type : undefined
     }
     
-    if (tools.length > 0) {
-      const sanitizedTools = sanitizeOpenAITools(tools)
-      if (sanitizedTools.length > 0) {
-        openaiPayload.tools = sanitizedTools
-      }
-    }
+    if (tools.length > 0) openaiPayload.tools = sanitizeOpenAITools(tools)
     
     openaiPayload.messages = sanitizeOpenAIMessages(openaiPayload.messages)
 
