@@ -295,7 +295,7 @@ app.post('/v1/messages', async (c) => {
         type === 'none' || type === 'auto' ? type : undefined
     }
     
-    if (tools.length > 0) openaiPayload.tools = tools
+    if (tools.length > 0) openaiPayload.tools = sanitizeOpenAITools(tools)
     
     openaiPayload.messages = sanitizeOpenAIMessages(openaiPayload.messages)
 
