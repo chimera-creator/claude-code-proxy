@@ -65,6 +65,31 @@ app.post('/v1/messages', async (c) => {
       return value.replace(/Bearer\s+(\S+)/g, 'Bearer ********')
     }
 
+    function sanitizeOpenAIMessages(sourceMessages: any[]): any[] {
+      return sourceMessages.filter((message) => message != null).map((message) => {
+        const sanitized = { ...message }
+        if (sanitized.content == null) {
+          sanitized.content = ''
+        } else if (Array.isArray(sanitized.content)) {
+          const parts = sanitized.content
+            .filter((part: any) => part != null)
+            .map((part: any) => {
+              if (part?.type === 'text' && part.text == null) {
+                return { ...part, text: '' }
+              }
+              return part
+            })
+          sanitized.content = parts.length > 0 ? parts : ''
+        } else if (typeof sanitized.content !== 'string') {
+          sanitized.content =
+            typeof sanitized.content === 'object'
+              ? JSON.stringify(sanitized.content)
+              : String(sanitized.content)
+        }
+        return sanitized
+      })
+    }
+
     const claudePayload = await c.req.json()
     
     // Transform Claude format to OpenAI format for upstream API
@@ -184,11 +209,11 @@ app.post('/v1/messages', async (c) => {
             
             // Add assistant message with content and/or tool calls
             const openAIMsg: any = { role: 'assistant' }
-            // OpenAI requires content to be null when only tool_calls are present
+            // Use empty content for tool-only messages to satisfy strict upstreams
             if (textParts.length > 0) {
               openAIMsg.content = textParts.join(' ')
             } else if (toolCalls.length > 0) {
-              openAIMsg.content = null
+              openAIMsg.content = ''
             }
             if (toolCalls.length > 0) {
               openAIMsg.tool_calls = toolCalls
@@ -226,7 +251,7 @@ app.post('/v1/messages', async (c) => {
       // Existing fields kept as before
 
       model: selectedModel,
-      messages,
+      messages: sanitizeOpenAIMessages(messages),
       // o3/o1/gpt-5 models only support temperature=1 (default)
       temperature: isO3Model ? undefined : (claudeRequest.temperature !== undefined ? claudeRequest.temperature : 1),
       stream: claudeRequest.stream === true,
@@ -266,6 +291,8 @@ app.post('/v1/messages', async (c) => {
     
     if (tools.length > 0) openaiPayload.tools = tools
     
+    openaiPayload.messages = sanitizeOpenAIMessages(openaiPayload.messages)
+
     debug('OpenAI payload:', JSON.stringify(openaiPayload, null, 2))
 
     const headers: Record<string, string> = {
