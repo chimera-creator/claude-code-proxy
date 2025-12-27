@@ -319,6 +319,9 @@ export function removeUriFormat(schema: any): any {
   // Recursively process all properties
   const result: any = {}
   for (const key in schema) {
+    if (key === '$schema') {
+      continue
+    }
     if (key === 'properties' && typeof schema[key] === 'object') {
       result[key] = {}
       for (const propKey in schema[key]) {
