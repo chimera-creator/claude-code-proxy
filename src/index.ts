@@ -86,13 +86,26 @@ app.post('/v1/messages', async (c) => {
               ? JSON.stringify(sanitized.content)
               : String(sanitized.content)
         }
+        if (sanitized.role === 'tool') {
+          if (sanitized.tool_call_id == null) {
+            sanitized.tool_call_id = ''
+          } else if (typeof sanitized.tool_call_id !== 'string') {
+            sanitized.tool_call_id = String(sanitized.tool_call_id)
+          }
+        }
         if (Array.isArray(sanitized.tool_calls)) {
           sanitized.tool_calls = sanitized.tool_calls
             .filter((toolCall: any) => toolCall != null)
             .map((toolCall: any) => {
               const toolCallCopy = { ...toolCall }
+              if (toolCallCopy.id != null && typeof toolCallCopy.id !== 'string') {
+                toolCallCopy.id = String(toolCallCopy.id)
+              }
               if (toolCallCopy.function) {
                 const functionCopy = { ...toolCallCopy.function }
+                if (functionCopy.name != null && typeof functionCopy.name !== 'string') {
+                  functionCopy.name = String(functionCopy.name)
+                }
                 if (typeof functionCopy.arguments !== 'string') {
                   functionCopy.arguments = JSON.stringify(functionCopy.arguments ?? {})
                 }
