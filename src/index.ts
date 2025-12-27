@@ -70,7 +70,7 @@ app.post('/v1/messages', async (c) => {
         const sanitized = { ...message }
         if (sanitized.content == null) sanitized.content = ''
         if (Array.isArray(sanitized.content)) {
-          sanitized.content = sanitized.content
+          const parts = sanitized.content
             .filter((part: any) => part != null)
             .map((part: any) => {
               if (part?.type === 'text' && part.text == null) {
@@ -78,6 +78,7 @@ app.post('/v1/messages', async (c) => {
               }
               return part
             })
+          sanitized.content = parts.length > 0 ? parts : ''
         }
         return sanitized
       })
@@ -284,6 +285,8 @@ app.post('/v1/messages', async (c) => {
     
     if (tools.length > 0) openaiPayload.tools = tools
     
+    openaiPayload.messages = sanitizeOpenAIMessages(openaiPayload.messages)
+
     debug('OpenAI payload:', JSON.stringify(openaiPayload, null, 2))
 
     const headers: Record<string, string> = {
